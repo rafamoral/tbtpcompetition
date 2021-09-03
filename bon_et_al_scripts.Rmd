@@ -1,0 +1,1104 @@
+---
+title: "Influence of intra and interspecific competition between egg parasitoids on the effectiveness of biological control of Euschistus heros"
+author: "Victor Bon, Rafael Moral, Carolina Reigada"
+date: "September 2021"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lme4)
+library(hnp)
+library(coefplot2)
+library(nnet)
+library(gamlss)
+library(gamlss.cens)
+library(gridExtra)
+library(readxl)
+
+source("https://git.io/vAdIb")
+gen.cens(WEI3cr)
+mean2 <- function(x) mean(na.omit(x))
+se <- function(x) sd(na.omit(x))/sqrt(length(na.omit(x)))
+lr_test <- function(f1, f2) {
+  df <- abs(df.residual(f1) - df.residual(f2))
+  lr <- as.numeric(abs(logLik(f1) - logLik(f2)))
+  p <- 1 - pchisq(lr, df)
+  tab <- data.frame(LR = round(lr, 2), df = df, "p-value" = round(p, 4))
+  print(tab)
+}
+```
+
+## Simultaneous Parasitism -- Experiment 1
+
+```{r, include = FALSE}
+par1 <- read.csv2("parasitismo_exp1.csv", header = TRUE, stringsAsFactors = TRUE)
+par1$trat2 <- par1$trat
+levels(par1$trat2) <- c("TB vs TB","TB vs TP","TP vs TP")
+```
+
+### Methods
+
+Quasi-binomial generalized linear models were fitted to the proportion data (Dem\'etrio et al., 2016), including the effects of treatment, experiment and the interaction between treatment and experiment in the linear predictor. The significance of the effects was assessed using F tests, and multiple comparisons were performed by obtaining the 95\% confidence intervals for the linear predictors. Goodness-of-fit was assessed using half-normal plots with simulated envelopes (Moral et al., 2017).
+
+### Results
+
+*Parasitism rates*
+
+```{r, echo = FALSE}
+## parasitism rates
+
+par1 %>%
+  ggplot(aes(y = t_ovosparas/t_ovos * 100, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Percentage parasitism")
+
+fit1 <- glm(cbind(t_ovosparas, t_ovos - t_ovosparas) ~
+              experimento * trat,
+            family = quasibinomial,
+            data = par1)
+anova(fit1, test = "F")
+hnp(update(fit1, . ~ experimento + trat))
+coefplot2(update(fit1, . ~ experimento + trat))
+
+par1 %>%
+  group_by(trat) %>%
+  summarise(mean = mean(t_ovosparas/t_ovos),
+            se = se(t_ovosparas/t_ovos))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par1 %>%
+  ggplot(aes(y = t_ovosparas/t_ovos * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Parasitism rate (%)")
+```
+
+*Emergence rates*
+
+```{r, echo = FALSE}
+par1 %>%
+  ggplot(aes(y = n_vivos/t_ovosparas * 100, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Percentage viable parasitoids")
+
+fit1 <- glm(cbind(n_vivos, t_ovosparas - n_vivos) ~
+              experimento * trat,
+            family = quasibinomial,
+            data = par1)
+anova(fit1, test = "F")
+hnp(update(fit1, . ~ experimento + trat))
+#coefplot2(update(fit1, . ~ experimento + trat))
+
+par1 %>%
+  group_by(trat) %>%
+  summarise(mean = mean(n_vivos/t_ovosparas),
+            se = se(n_vivos/t_ovosparas))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par1 %>%
+ggplot(aes(y = n_vivos/t_ovosparas * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Parasitoid viability (%)")
+```
+
+*Sex ratio*
+
+```{r, echo = FALSE}
+par1 %>%
+  ggplot(aes(y = femea/n_vivos * 100, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Percentage of females")
+
+fit1 <- glm(cbind(femea, n_vivos - femea) ~
+              experimento * trat,
+            family = quasibinomial,
+            data = par1)
+anova(fit1, test = "F")
+hnp(update(fit1, . ~ experimento + trat))
+#coefplot2(update(fit1, . ~ experimento + trat))
+
+par1 %>%
+  filter(n_vivos > 0) %>%
+  group_by(trat) %>%
+  summarise(mean = mean(femea/n_vivos),
+            se = se(femea/n_vivos))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par1 %>%
+  ggplot(aes(y = femea/n_vivos * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Sex ratio (% females)")
+```
+
+*Interspecific competition*
+
+Part 1: comparing TB between treatments: TB-only and TB+TP
+
+```{r, echo = FALSE}
+par1 %>%
+  filter(trat != "tp") %>%
+  ggplot(aes(y = n_tb/t_ovosparas, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento)
+
+fit1 <- glm(cbind(n_tb, t_ovosparas - n_tb) ~
+              experimento * trat,
+            family = quasibinomial,
+            data = par1)
+
+anova(fit1, test = "F")
+hnp(update(fit1, . ~ experimento + trat))
+#coefplot2(update(fit1, . ~ experimento + trat))
+
+par1 %>%
+  filter(trat != "tp") %>%
+  group_by(trat) %>%
+  summarise(mean = mean(n_tb/t_ovosparas),
+            se = se(n_tb/t_ovosparas))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par1 %>%
+  filter(trat != "tp") %>%
+  ggplot(aes(y = n_tb/t_ovosparas * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Percentage of individuals (TB)")
+```
+
+Part 2: comparing TP between treatments: TP-only and TB+TP
+
+```{r, echo = FALSE}
+par1 %>%
+  filter(trat != "tb") %>%
+  ggplot(aes(y = n_tp/t_ovosparas, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento)
+
+fit1 <- glm(cbind(n_tp, t_ovosparas - n_tp) ~
+              experimento * trat,
+            family = quasibinomial,
+            data = par1)
+anova(fit1, test = "F")
+hnp(update(fit1, . ~ experimento + trat))
+#coefplot2(update(fit1, . ~ experimento + trat))
+
+par1 %>%
+  filter(trat != "tb") %>%
+  group_by(experimento, trat) %>%
+  summarise(mean = mean(n_tp/t_ovosparas),
+            se = se(n_tp/t_ovosparas))
+
+par1 %>%
+  filter(trat != "tb") %>%
+  group_by(trat) %>%
+  summarise(mean = mean(n_tp/t_ovosparas),
+            se = se(n_tp/t_ovosparas))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par1 %>%
+  filter(trat != "tb") %>%
+  ggplot(aes(y = n_tp/t_ovosparas * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Percentage of individuals (TP)")
+```
+
+Part 3: comparing TB vs. TP within treatment TB+TP
+(reported values are the proportion of TP)
+
+```{r, echo = FALSE}
+par1 %>%
+  filter(trat == "tbtp") %>%
+  ggplot(aes(y = n_tp/(n_tp + n_tb), x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento)
+
+fit1 <- glm(cbind(n_tp, n_tb) ~
+              experimento,
+            family = quasibinomial,
+            data = par1)
+anova(fit1, test = "F")
+hnp(fit1)
+#coefplot2(update(fit1, . ~ . - 1), intercept = TRUE)
+
+par1 %>%
+  filter(trat == "tbtp") %>%
+  group_by(experimento) %>%
+  summarise(mean = mean2(n_tp/(n_tb + n_tp)),
+            se = se(n_tp/(n_tb + n_tp)))
+
+par1 %>%
+  filter(trat == "tbtp") %>%
+  group_by(experimento) %>%
+  summarise(mean = mean2(n_tp/(n_tb + n_tp)),
+            se = se(n_tp/(n_tb + n_tp)))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par1 %>%
+  filter(trat == "tbtp") %>%
+  ggplot(aes(y = n_tp/(n_tp + n_tb), x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  facet_wrap(~ experimento) +
+  xlab("Scenario") +
+  ylab("Percentage of individuals (TP/(TB + TP) * 100) ")
+```
+
+## Sequential Parasitism -- Experiment 2
+
+```{r, include = FALSE}
+par2 <- read.csv("sucesso_geral.csv", header = TRUE, stringsAsFactors = TRUE)[,-1]
+par2$trat2 <- par2$trat
+levels(par2$trat2) <- c("TB","Controle","TP","TB vs TP")
+par2_os <- read.csv("sucesso_sadios.csv", header = TRUE, stringsAsFactors = TRUE)
+par2_os$trat2 <- par2_os$trat
+levels(par2_os$trat2) <- c("TB","TP","TB vs TP")
+```
+
+### Successful emergence rates
+
+```{r, echo = FALSE}
+par2 %>%
+  pivot_longer(cols = 2:5,
+               names_to = "category",
+               values_to = "outcome") %>%
+  group_by(trat, category) %>%
+  summarise_all(mean) %>%
+  ggplot(aes(x = trat, y = outcome, fill = category)) +
+    theme_bw() +
+    geom_bar(position = "fill",
+             stat = "identity") +
+  ylab("Proportions") +
+  xlab("Scenario")
+
+fit1 <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat, data = par2)
+fit2 <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ 1, data = par2)
+
+anova(fit1, fit2)
+
+par2$trat_tb <- par2$trat
+levels(par2$trat_tb) <- c(1,2,3,1)
+par2$trat_tp <- par2$trat
+levels(par2$trat_tp) <- c(1,2,3,3)
+
+par2$trat_tb_control <- par2$trat
+levels(par2$trat_tb_control) <- c(1,1,2,3)
+par2$trat_tp_control <- par2$trat
+levels(par2$trat_tp_control) <- c(1,2,2,3)
+par2$trat_tbtp_control <- par2$trat
+levels(par2$trat_tbtp_control) <- c(1,2,3,2)
+
+fit_tb <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat_tb, data = par2)
+fit_tp <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat_tp, data = par2)
+
+anova(fit1, fit_tb)
+anova(fit1, fit_tp)
+
+fit_tb_control <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat_tb_control, data = par2)
+fit_tp_control <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat_tp_control, data = par2)
+fit_tbtp_control <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat_tbtp_control, data = par2)
+
+anova(fit1, fit_tb_control)
+anova(fit1, fit_tp_control)
+anova(fit1, fit_tbtp_control)
+
+par2 %>%
+  pivot_longer(cols = 2:5,
+               names_to = "category",
+               values_to = "outcome") %>%
+  dplyr::select(trat, category, outcome) %>%
+  group_by(trat, category) %>%
+  summarise_all(list(mean, se))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par2_plot <- par2 %>%
+  pivot_longer(cols = 2:5,
+               names_to = "Category",
+               values_to = "outcome") %>%
+  group_by(trat2, Category)
+par2_plot$Category <- as.factor(par2_plot$Category)
+levels(par2_plot$Category) <- c("Dead","Non-parasitized","TB","TP")
+levels(par2_plot$trat2)[2] <- "Control"
+
+fig5_a <- par2_plot %>%
+  summarise_all(mean) %>%
+  ggplot(aes(x = trat2, y = outcome, fill = Category)) +
+    theme_bw() +
+    geom_bar(position = "fill",
+             stat = "identity") +
+  ylab("Proportions") +
+  xlab("Scenario") +
+  scale_fill_grey(start = 0, end = .9) +
+  ggtitle("(a)")
+```
+
+### Successful emergence rates (only non-parasitized eggs)
+
+```{r, echo = FALSE}
+par2_os %>%
+  pivot_longer(cols = 2:5,
+               names_to = "category",
+               values_to = "outcome") %>%
+  group_by(trat, category) %>%
+  summarise_all(mean) %>%
+  ggplot(aes(x = trat, y = outcome, fill = category)) +
+    theme_bw() +
+    geom_bar(position = "fill",
+             stat = "identity") +
+  ylab("Proportions") +
+  xlab("Scenario")
+
+fit1 <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat, data = par2_os)
+fit2 <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ 1, data = par2_os)
+
+anova(fit1, fit2)
+
+par2_os$trat_tb <- par2_os$trat
+levels(par2_os$trat_tb) <- c(1,2,1)
+par2_os$trat_tp <- par2_os$trat
+levels(par2_os$trat_tp) <- c(1,2,2)
+
+fit_tb <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat_tb, data = par2_os)
+fit_tp <- multinom(cbind(n_tb, n_tp, n_nenhum, n_morte) ~ trat_tp, data = par2_os)
+
+anova(fit1, fit_tb)
+anova(fit1, fit_tp)
+
+par2_os %>%
+  pivot_longer(cols = 2:5,
+               names_to = "category",
+               values_to = "outcome") %>%
+  dplyr::select(trat, category, outcome) %>%
+  group_by(trat, category) %>%
+  summarise_all(list(mean, se))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par2_os_plot <- par2_os %>%
+  pivot_longer(cols = 2:5,
+               names_to = "Category",
+               values_to = "outcome") %>%
+  group_by(trat2, Category)
+par2_os_plot$Category <- as.factor(par2_os_plot$Category)
+levels(par2_os_plot$Category) <- c("Dead","Non-parasitized","TB","TP")
+
+fig5_b <- par2_os_plot %>%
+  summarise_all(mean) %>%
+  ggplot(aes(x = trat2, y = outcome, fill = Category)) +
+    theme_bw() +
+    geom_bar(position = "fill",
+             stat = "identity") +
+  ylab("Proportions") +
+  xlab("Scenario") +
+  scale_fill_grey(start = 0, end = .9) +
+  ggtitle("(b)")
+```
+
+```{r}
+png("figure5.tiff", res = 800, units = "in", w = 10, h = 4)
+grid.arrange(fig5_a, fig5_b, ncol = 2)
+dev.off()
+```
+
+### Sex ratio
+
+*Trissolcus basalis*
+
+```{r, echo = FALSE}
+par2 %>%
+  ggplot(aes(y = femeas_tb/n_tb * 100, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Percentage of females")
+
+fit1 <- glm(cbind(femeas_tb, n_tb - femeas_tb) ~ trat,
+            family = quasibinomial,
+            data = par2)
+
+anova(fit1, test = "F")
+hnp(fit1)
+#coefplot2(update(fit1, . ~ . - 1), intercept = TRUE)
+
+par2 %>%
+  filter(n_tb > 0) %>%
+  group_by(trat) %>%
+  summarise(mean = mean2(femeas_tb/n_tb),
+            se = se(femeas_tb/n_tb))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par2 %>%
+  ggplot(aes(y = femeas_tb/n_tb * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Sex ratio (% females)")
+```
+
+*Telenomus podisii*
+
+```{r, echo = FALSE}
+par2 %>%
+  ggplot(aes(y = femeas_tp/n_tp * 100, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Percentage of females")
+
+fit1 <- glm(cbind(femeas_tp, n_tp - femeas_tp) ~ trat,
+            family = quasibinomial,
+            data = par2)
+
+anova(fit1, test = "F")
+hnp(fit1)
+#coefplot2(update(fit1, . ~ . - 1), intercept = TRUE)
+
+par2 %>%
+  filter(n_tp > 0) %>%
+  group_by(trat) %>%
+  summarise(mean = mean2(femeas_tp/n_tp),
+            se = se(femeas_tp/n_tp))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par2 %>%
+  ggplot(aes(y = femeas_tp/n_tp * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Sex ratio (% females)")
+
+```
+
+### Sex ratio (only non-parasitized eggs)
+
+*Trissolcus basalis*
+
+```{r, echo = FALSE}
+par2_os %>%
+  ggplot(aes(y = femeas_tb/n_tb * 100, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Percentage of females")
+
+fit1 <- glm(cbind(femeas_tb, n_tb - femeas_tb) ~ trat,
+            family = quasibinomial,
+            data = par2_os)
+
+anova(fit1, test = "F")
+hnp(fit1)
+#coefplot2(update(fit1, . ~ . - 1), intercept = TRUE)
+
+par2_os %>%
+  filter(n_tb > 0) %>%
+  group_by(trat) %>%
+  summarise(mean = mean2(femeas_tb/n_tb),
+            se = se(femeas_tb/n_tb))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par2_os %>%
+  ggplot(aes(y = femeas_tb/n_tb * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Sex ratio (% females)")
+```
+
+*Telenomus podisii*
+
+```{r, echo = FALSE}
+par2_os %>%
+  ggplot(aes(y = femeas_tp/n_tp * 100, x = trat, fill = trat)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Percentage of females")
+
+fit1 <- glm(cbind(femeas_tp, n_tp - femeas_tp) ~ trat,
+            family = binomial,
+            data = par2_os)
+
+anova(fit1, test = "Chisq")
+hnp(fit1)
+#coefplot2(update(fit1, . ~ . - 1), intercept = TRUE)
+
+par2_os %>%
+  filter(n_tp > 0) %>%
+  group_by(trat) %>%
+  summarise(mean = mean2(femeas_tp/n_tp),
+            se = se(femeas_tp/n_tp))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+par2_os %>%
+  ggplot(aes(y = femeas_tp/n_tp * 100, x = trat2)) +
+  theme_bw() +
+  geom_boxplot() +
+  xlab("Scenario") +
+  ylab("Sex ratio (% females)")
+```
+
+## Emergence patterns (Experiment 1)
+
+### Methods
+
+We fitted proportional-hazards Weibull cure rate models to the time of emergence data (Ramires et al., 2020), implemented through gamlss (Rigby and Stasinopoulos, 2005). The ``cured" fraction represents the insects that never emerged in the 24-day observation period. We included the effect of block and scenario in the linear predictor for the mean (modelled with a log link), and scenario in the linear predictors for the variance (modelled with a log link) and the cure rate (modelled with a logit link). We then performed backwards model selection starting from the linear predictor for the mean, then variance given mean, and finally cure rate given mean and variance. Using the final selected model, we produced plots of the cumulative distribution functions for each scenario, which represent the probability of emergence over time.
+
+### Results
+
+```{r, include = FALSE}
+emer1 <- read.csv("emergencia_exp1.csv", header = TRUE, stringsAsFactors = TRUE)
+emer1$bloco <- as.factor(emer1$bloco)
+levels(emer1$trat) <- c("TB","Competition","TP")
+```
+
+```{r}
+fit0 <- gamlss(Surv(tempo, censura) ~ bloco + trat,
+               sigma.formula = ~ trat,
+               nu.formula = ~ trat,
+               family = cens("WEI3cr"),
+               data = emer1)
+fit1 <- fit0
+fit2 <- gamlss(Surv(tempo, censura) ~ bloco,
+               sigma.formula = ~ trat,
+               nu.formula = ~ trat,
+               family = cens("WEI3cr"),
+               data = emer1)
+lr_test(fit1, fit2) # ef principal de trat para a media
+
+fit2 <- gamlss(Surv(tempo, censura) ~ bloco + trat,
+               sigma.formula = ~ 1,
+               nu.formula = ~ trat,
+               family = cens("WEI3cr"),
+               data = emer1)
+lr_test(fit1, fit2) # ef principal de trat para a variancia
+
+fit2 <- gamlss(Surv(tempo, censura) ~ bloco + trat,
+               sigma.formula = ~ trat,
+               nu.formula = ~ 1,
+               family = cens("WEI3cr"),
+               data = emer1)
+lr_test(fit1, fit2) # ef principal de trat para a fracao de cura
+
+fit <- gamlss(Surv(tempo, censura) ~ trat,
+               sigma.formula = ~ trat,
+               nu.formula = ~ trat,
+               family = cens("WEI3cr"),
+               data = emer1)
+summary(fit)
+
+df_grid <- expand.grid(trat = levels(emer1$trat))
+mu <- gamlss:::predict.gamlss(fit, what = "mu",
+                              newdata = df_grid)
+sigma <- gamlss:::predict.gamlss(fit, what = "sigma",
+                              newdata = df_grid)
+nu <- gamlss:::predict.gamlss(fit, what = "nu",
+                              newdata = df_grid)
+df_grid2 <- df_grid %>%
+  mutate(mu = exp(mu),
+         sigma = exp(sigma),
+         nu = exp(nu)/(1 + exp(nu))) %>%
+  slice(rep(1:n(), each = 100)) %>%
+  ungroup() %>%
+  mutate(time = rep(seq(8, 22, length = 100), 3)) %>%
+  rowwise() %>%
+  mutate(prob = pWEI3cr(time, mu = mu, sigma = sigma, nu = nu)) %>%
+  ungroup()
+
+df_grid2 %>%
+  ggplot(aes(y = prob, x = time, group = trat)) +
+  geom_line(aes(col = trat), size = 1, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 15.9, linetype = "dashed") +
+  #facet_wrap(~ trat, ncol = 1) +
+  theme_bw() +
+  theme(legend.position = "bottom")+
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  labs(x = "Days until emergence",
+       y = "Estimated emergence probability",
+       colour = "Scenario") +
+  ylim(0, 1)
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+df_grid2$trat2 <- df_grid2$trat
+levels(df_grid2$trat2) <- c("TB vs TB","TB vs TP","TP vs TP")
+
+fig4_a <- df_grid2 %>%
+  ggplot(aes(y = prob, x = time, group = trat2)) +
+  geom_line(aes(lty = trat2), size = .6, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 15.9, linetype = "dashed", cex = .3) +
+  #facet_wrap(~ trat, ncol = 1) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted")) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  labs(x = "Days until emergence",
+       y = "Estimated emergence probability",
+       lty = "Scenario") +
+  ylim(0, 1) +
+  ggtitle("(a)")
+```
+
+## Emergence patterns (Experiment 1 -- conditional analysis)
+
+### Methods
+
+We fitted proportional-hazards Weibull models to the time of emergence data, implemented through gamlss (Rigby and Stasinopoulos, 2005). We included the effects of block and species in the linear predictor for the mean (modelled with a log link), and species in the linear predictor for the variance (also modelled with a log link). We then performed backwards model selection starting from the linear predictor for the mean, then variance given mean. Using the final selected model, we produced plots of the cumulative distribution functions for each scenario, which represent the probability of emergence over time. **This analysis was conditional on the individuals that emerged within 23 days of observation.**
+
+### Results
+
+```{r, include = FALSE}
+emer1j <- read.csv("emergencia_exp1_juntos.csv", header = TRUE, stringsAsFactors = TRUE)
+emer1j$bloco <- as.factor(emer1j$bloco)
+levels(emer1j$especie) <- c("TB","TP","None")
+emer1j$especie[is.na(emer1j$especie)] <- "None"
+```
+
+```{r}
+fit0 <- gamlss(Surv(tempo, censura) ~ bloco + especie,
+               sigma.formula = ~ especie,
+               family = cens("WEI3"),
+               data = emer1j)
+fit1 <- fit0
+fit2 <- gamlss(Surv(tempo, censura) ~ bloco,
+               sigma.formula = ~ especie,
+               family = cens("WEI3"),
+               data = emer1j)
+lr_test(fit1, fit2) # efeito de especie para a media
+
+fit2 <- gamlss(Surv(tempo, censura) ~ bloco + especie,
+               sigma.formula = ~ 1,
+               family = cens("WEI3"),
+               data = emer1j)
+lr_test(fit1, fit2) # efeito de especie para a variancia
+
+fit <- gamlss(Surv(tempo, censura) ~ especie,
+               sigma.formula = ~ especie,
+               family = cens("WEI3"),
+               data = emer1j)
+summary(fit)
+
+df_grid <- expand.grid(trat = levels(emer1j$trat),
+                       especie = levels(emer1j$especie))
+mu <- gamlss:::predict.gamlss(fit, what = "mu",
+                              newdata = df_grid)
+sigma <- gamlss:::predict.gamlss(fit, what = "sigma",
+                              newdata = df_grid)
+
+df_grid2 <- df_grid %>%
+  mutate(mu = exp(mu),
+         sigma = exp(sigma)) %>%
+  slice(rep(1:n(), each = 100)) %>%
+  ungroup() %>%
+  mutate(time = rep(seq(8, 22, length = 100), 6)) %>%
+  rowwise() %>%
+  mutate(prob = pWEI3(time, mu = mu, sigma = sigma)) %>%
+  ungroup()
+
+df_grid2 %>%
+  filter(especie != "None") %>%
+  ggplot(aes(y = prob, x = time, group = especie)) +
+  geom_line(aes(col = especie), size = 1, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 16.02, linetype = "dashed") +
+  theme_bw() +
+  theme(legend.position = "bottom")+
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  labs(x = "Days until emergence",
+       y = "Estimated emergence probability",
+       colour = "Species") +
+  ylim(0, 1)
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+df_grid2$especie2 <- df_grid2$especie
+levels(df_grid2$especie2) <- c("TB","TP","Non-parasitized")
+
+fig4_b <- df_grid2 %>%
+  filter(especie != "None") %>%
+  ggplot(aes(y = prob, x = time, group = especie2)) +
+  geom_line(aes(lty = especie2), size = .6, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 16.02, linetype = "dashed", cex = .3) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7)) +
+  scale_linetype_manual(values = c("solid", "dashed")) +
+  labs(x = "Days until emergence",
+       y = "Estimated probability of emergence",
+       lty = "Species") +
+  ylim(0, 1) +
+  ggtitle("(b)")
+```
+
+```{r}
+png("figure4.tiff", res = 800, units = "in", w = 10, h = 4)
+grid.arrange(fig4_a, fig4_b, ncol = 2)
+dev.off()
+```
+
+## Emergence patterns (Experiment 2)
+
+### Methods
+
+We fitted proportional-hazards Weibull cure rate models to the time of emergence data (Ramires et al., 2020), implemented through gamlss (Rigby and Stasinopoulos, 2005). The ``cured" fraction represents the insects that never emerged in the 24-day observation period. We included the effects of scenario and egg type, and the interaction between them in the linear predictors for the mean (modelled with a log link), the variance (also modelled with a log link) and the cure rate (modelled with a logit link). We then performed backwards model selection starting from the linear predictor for the mean, then variance given mean, and finally cure rate given mean and variance. Using the final selected model, we produced plots of the cumulative distribution functions for each scenario, which represent the probability of emergence over time.
+
+### Results
+
+```{r, include = FALSE}
+emer23 <- read.csv("emergencia_exp2e3.csv", header = TRUE, stringsAsFactors = TRUE)
+emer23$tempo <- as.numeric(as.character(emer23$tempo))
+emer23$cens <- as.numeric(!is.na(emer23$tempo))
+emer23$tempo[is.na(emer23$tempo)] <- 23
+levels(emer23$trat) <- c("TB","controle","TB+TP","TP")
+levels(emer23$massa) <- c("TB","None","TP")
+```
+
+```{r, fig.height=10}
+fit0 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ trat * massa,
+               nu.formula = ~ trat * massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+fit1 <- fit0
+fit2 <- gamlss(Surv(tempo, cens) ~ trat + massa,
+               sigma.formula = ~ trat * massa,
+               nu.formula = ~ trat * massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+lr_test(fit1, fit2) # interacao trat e massa para a media
+
+fit2 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ trat + massa,
+               nu.formula = ~ trat * massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+lr_test(fit1, fit2) # interacao trat e massa para a variancia
+
+fit3 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ massa,
+               nu.formula = ~ trat * massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+lr_test(fit2, fit3) # efeito principal de trat para a variancia
+
+fit3 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ trat,
+               nu.formula = ~ trat * massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+lr_test(fit2, fit3) # efeito principal de massa para a variancia
+
+fit1 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ massa,
+               nu.formula = ~ trat * massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+fit2 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ massa,
+               nu.formula = ~ trat + massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+lr_test(fit1, fit2) # interacao trat e massa para a fracao de cura
+
+fit3 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ massa,
+               nu.formula = ~ massa,
+               family = cens("WEI3cr"),
+               data = emer23)
+lr_test(fit2, fit3) # efeito principal de trat para a fracao de cura
+
+fit3 <- gamlss(Surv(tempo, cens) ~ trat * massa,
+               sigma.formula = ~ massa,
+               nu.formula = ~ trat,
+               family = cens("WEI3cr"),
+               data = emer23)
+lr_test(fit2, fit3) # efeito principal de massa para a fracao de cura
+
+fit <- gamlss(Surv(tempo, cens) ~ trat * massa,
+              sigma.formula = ~ massa,
+              nu.formula = ~ massa,
+              family = cens("WEI3cr"),
+              data = emer23)
+lr_test(fit0, fit) # teste global
+
+summary(fit)
+
+df_grid <- expand.grid(trat = levels(emer23$trat),
+                       massa = levels(emer23$massa)) %>%
+  filter(!(trat == "controle" & massa == "None"))
+mu <- gamlss:::predict.gamlss(fit0, what = "mu",
+                              newdata = df_grid)
+sigma <- gamlss:::predict.gamlss(fit0, what = "sigma",
+                              newdata = df_grid)
+nu <- gamlss:::predict.gamlss(fit0, what = "nu",
+                              newdata = df_grid)
+df_grid2 <- df_grid %>%
+  mutate(mu = exp(mu),
+         sigma = exp(sigma),
+         nu = exp(nu)/(1 + exp(nu))) %>%
+  slice(rep(1:n(), each = 100)) %>%
+  ungroup() %>%
+  mutate(time = rep(seq(8, 22, length = 100), 11)) %>%
+  rowwise() %>%
+  mutate(prob = pWEI3cr(time, mu = mu, sigma = sigma, nu = nu)) %>%
+  ungroup()
+
+df_grid2 %>%
+  ggplot(aes(y = prob, x = time, group = massa)) +
+  geom_line(aes(colour = massa), size = 1, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 15.53, linetype = "dashed") +
+  facet_wrap(~ trat, ncol = 1) +
+  theme_bw() +
+  theme(legend.position = "bottom")+
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  labs(x = "Days until emergence",
+       y = "Estimated emergence probability",
+       colour = "Egg containing") +
+  ylim(0, 1)
+```
+
+```{r, include = FALSE}
+levels(df_grid2$massa) <- c("TB","None","TP")
+levels(df_grid2$trat) <- c("TB","Control","TB vs TP","TP")
+df_grid2$trat2 <- factor(as.character(df_grid2$trat), levels = c("Control","TB","TP","TB vs TP"))
+
+png("figure6.tiff", res = 800, units = "in", w = 6, h = 10)
+df_grid2 %>%
+  ggplot(aes(y = prob, x = time, group = massa)) +
+  geom_line(aes(lty = massa), size = .6, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 15.53, linetype = "dashed", cex = .3) +
+  facet_wrap(~ trat2, ncol = 1) +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7)) +
+  scale_linetype_manual(values = c("solid", "dotted", "dashed")) +
+  labs(x = "Days until emergence",
+       y = "Estimated probability of emergence",
+       lty = "Egg containing") +
+  ylim(0, 1)
+dev.off()
+```
+
+## Emergence patterns (Experiment 2 -- conditional analysis)
+
+### Methods
+
+We fitted proportional-hazards Weibull models to the time of emergence data, implemented through gamlss (Rigby and Stasinopoulos, 2005). We included the effects of species in the linear predictors for the mean (modelled with a log link) and the variance (also modelled with a log link). We then performed backwards model selection starting from the linear predictor for the mean, then variance given mean. Using the final selected model, we produced plots of the cumulative distribution functions for each scenario, which represent the probability of emergence over time. **This analysis was conditional on the individuals that emerged within 23 days of observation.**
+
+### Results
+
+```{r, include = FALSE}
+emer2j <- read.csv("exp2_3_sadios.csv", header = TRUE, stringsAsFactors = TRUE)
+levels(emer2j$especie) <- c("TB","TP")
+emer2j <- na.omit(emer2j)
+emer2j$censura <- 1
+```
+
+```{r}
+fit0 <- gamlss(Surv(tempo, censura) ~ especie,
+               sigma.formula = ~ especie,
+               family = cens("WEI3"),
+               data = emer2j)
+fit1 <- fit0
+fit2 <- gamlss(Surv(tempo, censura) ~ 1,
+               sigma.formula = ~ especie,
+               family = cens("WEI3"),
+               data = emer2j)
+lr_test(fit1, fit2) # efeito de especie para a media
+
+fit2 <- gamlss(Surv(tempo, censura) ~ especie,
+               sigma.formula = ~ 1,
+               family = cens("WEI3"),
+               data = emer2j)
+lr_test(fit1, fit2) # efeito de especie para a variancia
+
+fit <- fit0
+summary(fit)
+
+df_grid <- expand.grid(especie = levels(emer2j$especie))
+mu <- gamlss:::predict.gamlss(fit, what = "mu",
+                              newdata = df_grid)
+sigma <- gamlss:::predict.gamlss(fit, what = "sigma",
+                              newdata = df_grid)
+
+df_grid2 <- df_grid %>%
+  mutate(mu = exp(mu),
+         sigma = exp(sigma)) %>%
+  slice(rep(1:n(), each = 100)) %>%
+  ungroup() %>%
+  mutate(time = rep(seq(8, 22, length = 100), 2)) %>%
+  rowwise() %>%
+  mutate(prob = pWEI3(time, mu = mu, sigma = sigma)) %>%
+  ungroup()
+
+df_grid2 %>%
+  filter(especie != "None") %>%
+  ggplot(aes(y = prob, x = time, group = especie)) +
+  geom_line(aes(col = especie), size = 1, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 15.42, linetype = "dashed") +
+  theme_bw() +
+  theme(legend.position = "bottom")+
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  labs(x = "Days until emergence",
+       y = "Estimated emergence probability",
+       colour = "Species") +
+  ylim(0, 1)
+```
+
+```{r, include = FALSE}
+png("figure7.tiff", res = 800, units = "in", w = 6, h = 4)
+df_grid2 %>%
+  filter(especie != "None") %>%
+  ggplot(aes(y = prob, x = time, group = especie)) +
+  geom_line(aes(lty = especie), size = .6, alpha = .9) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  geom_vline(xintercept = 15.42, linetype = "dashed", cex = .3) +
+  theme_bw() +
+  theme(legend.position = "bottom")+
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 7))+
+  scale_linetype_manual(values = c("solid", "dashed")) +
+  labs(x = "Days until emergence",
+       y = "Estimated probability of emergence",
+       lty = "Species") +
+  ylim(0, 1)
+dev.off()
+```
+
+## Corrected host mortality analysis (simultaneous parasitism experiment)
+
+We employed the Schneider-Orelli correction to the host mortality data. This correction is of the form $y = \frac{b-k}{1-k}$, where $b$ is the observed mortality at a treatment and $k$ is the observed mortality in the control. We analysed this data using a Gaussian model including the effects of block and treatment in the linear predictor.
+
+```{r}
+host_mort <- read_csv("corrected_mortality.csv")
+host_mort$trat <- as.factor(host_mort$trat)
+host_mort$bloco <- as.factor(host_mort$bloco)
+
+fit <- lm(corrected_mortality ~ bloco + trat, data = host_mort)
+anova(fit)
+#coefplot2(fit)
+
+host_mort %>%
+  group_by(trat) %>%
+  summarise(mean = mean(corrected_mortality) %>% round(., 2),
+            se = se(corrected_mortality)%>% round(., 4))
+```
+
+## Host egg types
+
+We fitted multinomial models including the effects of block and treatment in the linear predictor. We assessed the significance of the treatment effect through likelihood-ratio (LR) tests for nested models.
+
+```{r}
+ovos <- read_excel("egg_types.xlsx")
+names(ovos) <- c("total","viaveis","inviaveis","inferteis","ninfas","malogrados","trat","bloco")
+
+ovos$trat <- as.factor(ovos$trat)
+ovos$bloco <- as.factor(ovos$bloco)
+
+fit1 <- multinom(cbind(viaveis, inviaveis, inferteis, ninfas, malogrados) ~ bloco + trat,
+                 data = ovos)
+fit2 <- multinom(cbind(viaveis, inviaveis, inferteis, ninfas, malogrados) ~ bloco,
+                 data = ovos)
+
+## general effect of treatment
+anova(fit1, fit2) ## significant
+
+summary(fit1)
+
+pi_hat <- apply(predict(fit1, type = "probs"), 2, function(x) tapply(x, ovos$trat, mean)) %>% round(4) * 100
+
+## grouping tb + tp together
+ovos$trat2 <- ovos$trat
+levels(ovos$trat2) <- c("controle","teste","tbtp","teste")
+fit3 <- multinom(cbind(viaveis, inviaveis, inferteis, ninfas, malogrados) ~ bloco + trat2,
+                 data = ovos)
+anova(fit1, fit3) ## significant
+
+## grouping tb + tbtp together
+ovos$trat2 <- ovos$trat
+levels(ovos$trat2) <- c("controle","teste","teste","tp")
+fit3 <- multinom(cbind(viaveis, inviaveis, inferteis, ninfas, malogrados) ~ bloco + trat2,
+                 data = ovos)
+anova(fit1, fit3) ## significant
+
+## grouping tp + tbtp together
+ovos$trat2 <- ovos$trat
+levels(ovos$trat2) <- c("controle","tb","teste","teste")
+fit3 <- multinom(cbind(viaveis, inviaveis, inferteis, ninfas, malogrados) ~ bloco + trat2,
+                 data = ovos)
+anova(fit1, fit3) ## significant
+```
+
+```{r}
+pi_hat_plot <- pi_hat %>%
+  as_tibble %>%
+  mutate(trat = rownames(pi_hat)) %>%
+  pivot_longer(1:5,
+               names_to = "tipo",
+               values_to = "perc")
+pi_hat_plot$trat <- as.factor(pi_hat_plot$trat)
+levels(pi_hat_plot$trat) <- c("Control","TB","TB vs TP","TP")
+pi_hat_plot$tipo <- as.factor(pi_hat_plot$tipo)
+levels(pi_hat_plot$tipo) <- c("Failed eggs","Unemerged parasitized egges","Unemerged host eggs","Nymphs","Parasitized eggs")
+
+png("figure3.png", res = 800, units = "in", w = 6, h = 4)
+pi_hat_plot %>%
+  ggplot(aes(x = trat, y = perc, fill = tipo)) +
+  theme_bw() +
+  geom_bar(stat = "identity") +
+  scale_fill_discrete(name = "Type") +
+  #scale_fill_grey(name = "Type", start = 0, end = .9) +
+  xlab("Treatment") +
+  ylab("Percentage")
+dev.off()
+```
