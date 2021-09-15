@@ -1089,15 +1089,26 @@ pi_hat_plot <- pi_hat %>%
 pi_hat_plot$trat <- as.factor(pi_hat_plot$trat)
 levels(pi_hat_plot$trat) <- c("Control","TB","TB vs TP","TP")
 pi_hat_plot$tipo <- as.factor(pi_hat_plot$tipo)
-levels(pi_hat_plot$tipo) <- c("Failed eggs","Unemerged parasitized egges","Unemerged host eggs","Nymphs","Parasitized eggs")
+levels(pi_hat_plot$tipo) <- c("Failed eggs","Non-emerged parasitized egges","Non-emerged host eggs","Nymphs","Parasitized eggs")
 
 png("figure3.png", res = 800, units = "in", w = 6, h = 4)
 pi_hat_plot %>%
   ggplot(aes(x = trat, y = perc, fill = tipo)) +
   theme_bw() +
+  geom_bar(stat = "identity", colour = "#00000055") +
+  #scale_fill_discrete(name = "Type") +
+  scale_fill_grey(name = "Type", start = 0, end = 1) +
+  xlab("Treatment") +
+  ylab("Percentage")
+dev.off()
+
+png("figure3_colour.png", res = 800, units = "in", w = 6, h = 4)
+pi_hat_plot %>%
+  ggplot(aes(x = trat, y = perc, fill = tipo)) +
+  theme_bw() +
   geom_bar(stat = "identity") +
   scale_fill_discrete(name = "Type") +
-  #scale_fill_grey(name = "Type", start = 0, end = .9) +
+  #scale_fill_grey(name = "Type", start = 0, end = 1) +
   xlab("Treatment") +
   ylab("Percentage")
 dev.off()
